@@ -1,4 +1,4 @@
-# src/models/train.py (FULL FINAL - Added dir creation)
+# src/models/train.py (FULL FINAL - Use filled feats, min data check)
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -17,19 +17,19 @@ os.makedirs('models', exist_ok=True)
 def train_model(symbol: str, target_col: str = 'target') -> Dict:
     try:
         feats = engineer_features(symbol)
-        if feats.empty:
-            raise ValueError("No features for training")
-        feats['target'] = (feats['returns'].shift(-1) > 0).astype(int)
-        feats = feats.dropna()
-        if len(feats) < 100:
+        if feats.empty or len(feats) < 50:  # FIXED: Relax min data
             raise ValueError("Insufficient data for training")
+        feats['target'] = (feats['returns'].shift(-1) > 0).astype(int)
+        feats = feats.dropna(subset=['target'])  # Only drop target NaNs
+        if len(feats) < 50:
+            raise ValueError("Insufficient data after target shift")
         
         X = feats.drop(['returns', 'target'], axis=1)
         y = feats['target']
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         
-        tscv = TimeSeriesSplit(n_splits=5)
+        tscv = TimeSeriesSplit(n_splits=min(5, len(X)//10))  # Adaptive splits
         scores = []
         for train_idx, val_idx in tscv.split(X_scaled):
             X_train, X_val = X_scaled[train_idx], X_scaled[val_idx]
