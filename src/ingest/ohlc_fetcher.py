@@ -1,4 +1,4 @@
-# src/ingest/ohlc_fetcher.py (FULL FINAL - Added import os + MultiIndex flatten)
+# src/ingest/ohlc_fetcher.py (FULL FINAL - No to_numeric here)
 import os
 import pandas as pd
 import yfinance as yf
@@ -19,7 +19,6 @@ load_dotenv()
 API_KEY_AV = os.getenv('ALPHA_VANTAGE_KEY', '')
 API_KEY_POLYGON = os.getenv('POLYGON_KEY', '')
 
-# Hard-coded SYMBOL_MAP
 SYMBOL_MAP = {
     'DXY': 'DX-Y.NYB',
     'XAUUSD': 'GC=F',
@@ -76,19 +75,16 @@ def fetch_polygon(symbol: str, api_key: str) -> Optional[pd.DataFrame]:
         return None
 
 def fetch_yahoo(symbol: str) -> pd.DataFrame:
-    """Primary source — always works, no key."""
     try:
         ticker = SYMBOL_MAP.get(symbol, symbol)
         df = yf.download(ticker, start='2020-01-01', end='2025-11-15', progress=False)
         if df.empty:
             raise ValueError("Yahoo no data")
-        # FIXED: Flatten MultiIndex columns if present
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df['symbol'] = symbol
         df['source'] = 'Yahoo'
         df.reset_index(inplace=True)
-        # Ensure standard columns
         expected = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
         for col in expected:
             if col not in df.columns:
@@ -101,7 +97,6 @@ def fetch_yahoo(symbol: str) -> pd.DataFrame:
         raise
 
 def fetch_ohlc(symbol: str, days: int = 1000) -> pd.DataFrame:
-    """Yahoo primary, others fallback."""
     df = fetch_av(symbol, API_KEY_AV)
     if df is None or df.empty:
         df = fetch_polygon(symbol, API_KEY_POLYGON)
