@@ -1,0 +1,10 @@
+# config/config.yaml (CREATE THIS FILE - Hard-coded assets)
+assets:
+  - DXY
+  - XAUUSD
+  - ES
+  - NQ
+  - EURUSD
+  - GBPUSD
+window_days: 1000
+ml_n_estimators: 100
