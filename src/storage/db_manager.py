@@ -1,4 +1,4 @@
-# src/storage/db_manager.py (FULL FINAL - Lazy schema)
+# src/storage/db_manager.py (FULL FINAL - Convert datetime on load)
 import os
 import pandas as pd
 from sqlalchemy import create_engine, text, inspect
@@ -69,6 +69,8 @@ def store_ohlc(df: pd.DataFrame) -> None:
         return
     df = df.copy()
     df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['close'] = pd.to_numeric(df['close'], errors='coerce')
+    df = df.dropna(subset=['close'])
     try:
         with engine.connect() as conn:
             upsert_sql = text("""
@@ -87,7 +89,11 @@ def load_ohlc(symbol: str, start_date: str) -> pd.DataFrame:
         query = text("SELECT * FROM raw_ohlc WHERE symbol = :symbol AND timestamp >= :start_date ORDER BY timestamp")
         with engine.connect() as conn:
             df = pd.read_sql(query, conn, params={'symbol': symbol, 'start_date': start_date})
-        return df if not df.empty else pd.DataFrame()
+        if not df.empty:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['close'] = pd.to_numeric(df['close'], errors='coerce')
+            df = df.dropna(subset=['close'])
+        return df
     except Exception as e:
         print(f"Load error: {e}")
         return pd.DataFrame()
