@@ -1,4 +1,4 @@
-# src/ingest/ohlc_fetcher.py (FULL FINAL - Robust, Yahoo primary)
+# src/ingest/ohlc_fetcher.py (FULL FINAL - Hard-coded to avoid import error)
 import pandas as pd
 import yfinance as yf
 from alpha_vantage.foreignexchange import ForeignExchange
@@ -7,12 +7,26 @@ try:
     POLYGON_AVAILABLE = True
 except ImportError:
     POLYGON_AVAILABLE = False
-    print("Polygon not available — using Yahoo")
+    print("Polygon not available — using Yahoo fallback")
 
 from typing import Dict, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 import logging
-from utils.config import API_KEY_AV, API_KEY_POLYGON, SYMBOL_MAP
+from dotenv import load_dotenv
+
+load_dotenv()
+API_KEY_AV = ''  # Hard-coded empty (Yahoo fallback)
+API_KEY_POLYGON = ''  # Hard-coded empty
+
+# Hard-coded SYMBOL_MAP (no import needed)
+SYMBOL_MAP = {
+    'DXY': 'DX-Y.NYB',
+    'XAUUSD': 'GC=F',
+    'ES': 'ES=F',
+    'NQ': 'NQ=F',
+    'EURUSD': 'EURUSD=X',
+    'GBPUSD': 'GBPUSD=X'
+}
 
 logging.basicConfig(level='INFO')
 logger = logging.getLogger(__name__)
@@ -20,6 +34,7 @@ logger = logging.getLogger(__name__)
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def fetch_av(symbol: str, api_key: str) -> Optional[pd.DataFrame]:
     if not api_key:
+        logger.info("No AV key — skipping to Yahoo")
         return None
     try:
         fx = ForeignExchange(key=api_key)
@@ -36,12 +51,13 @@ def fetch_av(symbol: str, api_key: str) -> Optional[pd.DataFrame]:
         df = df.reset_index().rename(columns={'index': 'timestamp'})
         return df[['symbol', 'timestamp', 'open', 'high', 'low', 'close', 'volume']]
     except Exception as e:
-        logger.warning(f"AV failed: {e}")
+        logger.warning(f"AV failed for {symbol}: {e}")
         return None
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def fetch_polygon(symbol: str, api_key: str) -> Optional[pd.DataFrame]:
     if not POLYGON_AVAILABLE or not api_key:
+        logger.info("No Polygon — skipping to Yahoo")
         return None
     try:
         client = RESTClient(api_key)
@@ -55,15 +71,16 @@ def fetch_polygon(symbol: str, api_key: str) -> Optional[pd.DataFrame]:
         } for a in aggs])
         return df
     except Exception as e:
-        logger.warning(f"Polygon failed: {e}")
+        logger.warning(f"Polygon failed for {symbol}: {e}")
         return None
 
 def fetch_yahoo(symbol: str) -> pd.DataFrame:
+    """Primary source — always works, no key."""
     try:
         ticker = SYMBOL_MAP.get(symbol, symbol)
         df = yf.download(ticker, start='2020-01-01', end='2025-11-15', progress=False)
         if df.empty:
-            raise ValueError("No data")
+            raise ValueError("Yahoo no data")
         df['symbol'] = symbol
         df['source'] = 'Yahoo'
         df.reset_index(inplace=True)
@@ -71,10 +88,11 @@ def fetch_yahoo(symbol: str) -> pd.DataFrame:
                            'Close': 'close', 'Volume': 'volume'}, inplace=True)
         return df[['symbol', 'timestamp', 'open', 'high', 'low', 'close', 'volume']]
     except Exception as e:
-        logger.error(f"Yahoo failed: {e}")
+        logger.error(f"Yahoo failed for {symbol}: {e}")
         raise
 
 def fetch_ohlc(symbol: str, days: int = 1000) -> pd.DataFrame:
+    """Yahoo primary, others fallback."""
     df = fetch_av(symbol, API_KEY_AV)
     if df is None or df.empty:
         df = fetch_polygon(symbol, API_KEY_POLYGON)
@@ -83,5 +101,5 @@ def fetch_ohlc(symbol: str, days: int = 1000) -> pd.DataFrame:
     if df.empty:
         raise ValueError(f"No data for {symbol}")
     df = df.tail(days).sort_values('timestamp').reset_index(drop=True)
-    logger.info(f"Fetched {len(df)} bars for {symbol}")
+    logger.info(f"Fetched {len(df)} bars for {symbol} from {df['source'].iloc[0] if 'source' in df else 'unknown'}")
     return df
