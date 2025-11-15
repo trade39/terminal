@@ -1,4 +1,4 @@
-# src/models/train.py
+# src/models/train.py (UPDATED - Uses utils.config for ASSETS)
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import TimeSeriesSplit
@@ -7,15 +7,15 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 from typing import Dict
 from features.engineer import engineer_features
-from utils.config import ASSETS
+from utils.config import ASSETS  # Now safe
 
 def train_model(symbol: str, target_col: str = 'target') -> Dict:
     """Train RF; target = future return sign."""
     feats = engineer_features(symbol)
-    feats['target'] = (feats['returns'].shift(-1) > 0).astype(int)  # Binary: up/down
+    feats['target'] = (feats['returns'].shift(-1) > 0).astype(int)
     feats = feats.dropna()
     
-    X = feats.drop(['returns', 'target'], axis=1)  # Features
+    X = feats.drop(['returns', 'target'], axis=1)
     y = feats['target']
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
@@ -36,7 +36,8 @@ def train_model(symbol: str, target_col: str = 'target') -> Dict:
     joblib.dump(scaler, f'models/scaler_{symbol}.joblib')
     
     metrics = {'cv_accuracy': np.mean(scores), 'n_features': X.shape[1]}
-    # Log to DB
+    
+    # Log to DB (optional)
     from storage.db_manager import engine
     with engine.connect() as conn:
         conn.execute(text("INSERT INTO model_metadata (model_name, version, metrics) VALUES (:name, :ver, :metrics)"),
