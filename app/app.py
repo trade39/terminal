@@ -1,4 +1,4 @@
-# app/app.py (FULL FINAL - Added column checks to prevent Plotly error)
+# app/app.py (FULL FINAL - Added dir creation)
 import streamlit as st
 import yaml
 import joblib
@@ -8,6 +8,10 @@ import os
 
 # Add src to path
 sys.path.append('src')
+
+# Create dirs
+os.makedirs('data', exist_ok=True)
+os.makedirs('models', exist_ok=True)
 
 # Simple config load
 config_path = 'config/config.yaml'
