@@ -1,26 +1,24 @@
-# src/models/infer.py
+# src/models/infer.py (UPDATED - No changes needed, but full for completeness)
 import pandas as pd
 import joblib
-from typing import Tuple, Dict
+import numpy as np
+from typing import Dict, Tuple
+from features.engineer import engineer_features
 
-def infer_signal(symbol: str) -> Tuple[float, Dict[str, float]]:
-    """Return signal (-1 to +1) + feature importance dict."""
-    # Load latest features
-    from features.engineer import engineer_features
-    feats = engineer_features(symbol).iloc[-1:]  # Latest row
-    
+def infer_signal(symbol: str) -> Tuple[float, Dict]:
+    """Infer score (-1 to 1); explain via importance."""
+    feats = engineer_features(symbol).iloc[-1:].drop(['returns'], axis=1)
     model = joblib.load(f'models/rf_{symbol}.joblib')
     scaler = joblib.load(f'models/scaler_{symbol}.joblib')
     
-    feature_cols = [c for c in feats.columns if c not in ['returns', 'target', 'symbol', 'timestamp']]
+    feature_cols = [c for c in feats.columns if c not in ['target', 'symbol', 'timestamp']]
     X_scaled = scaler.transform(feats[feature_cols])
+    prob = model.predict_proba(X_scaled)[0][1]
+    signal = (prob - 0.5) * 2
     
-    prob_up = model.predict_proba(X_scaled)[0][1]
-    signal = (prob_up - 0.5) * 2  # -1 to +1
-    
-    # Fast, reliable importance (no SHAP ever needed)
     importances = model.feature_importances_
     expl = dict(zip(feature_cols, importances))
     expl = dict(sorted(expl.items(), key=lambda x: x[1], reverse=True))
     
-    return float(signal), expl
+    print(f"Signal for {symbol}: {signal:.2f}")
+    return signal, expl
