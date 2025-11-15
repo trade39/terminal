@@ -1,79 +1,109 @@
-# app/app.py
+# app/app.py (Enhanced for Speed)
 import streamlit as st
-import plotly.express as px
-import pandas as pd
-from ingest.ohlc_fetcher import fetch_ohlc
-from features.engineer import engineer_features
-from models.train import train_model
-from models.infer import infer_signal
-from storage.db_manager import load_ohlc
+import time  # For micro-delays if needed
 import yaml
-from utils.config import ASSETS
+import joblib  # Core only on top
+
+# Lazy imports: Only when used
+@st.cache_resource(ttl=7200)
+def lazy_import_plotly():
+    import plotly.express as px
+    return px
+
+@st.cache_resource(ttl=7200)
+def lazy_import_shap():
+    import shap
+    return shap
+
+from utils.config import ASSETS  # Assume this loads fast
 
 st.set_page_config(page_title="Quant Terminal", layout="wide")
 st.title("🏦 Quant Terminal - Bloomberg Analogue")
 
-# Config load
-with open('config/config.yaml', 'r') as f:
-    cfg = yaml.safe_load(f)
-ASSETS = cfg['assets']  # ['DXY', 'XAUUSD', ...]
+# Config load (cached)
+@st.cache_data(ttl=86400)  # 24hr for config
+def load_config():
+    with open('config/config.yaml', 'r') as f:
+        return yaml.safe_load(f)
 
-# Sidebar: Asset selector, refresh, retrain
+cfg = load_config()
+ASSETS = cfg.get('assets', ['DXY', 'XAUUSD', 'ES', 'NQ', 'EURUSD', 'GBPUSD'])
+
+# Sidebar: Controls
 st.sidebar.header("Controls")
 selected_asset = st.sidebar.selectbox("Asset", ASSETS)
-if st.sidebar.button("Refresh Data"):
-    with st.spinner("Fetching..."):
-        df = fetch_ohlc(selected_asset)
-        st.cache_data.clear()  # Invalidate
-st.sidebar.button("Retrain Model", on_click=lambda: train_model(selected_asset))
+refresh = st.sidebar.button("Refresh Data")
+retrain = st.sidebar.button("Retrain Model")
 
-# Caching wrappers
-@st.cache_data(ttl=3600)  # 1hr TTL for data
+if refresh:
+    st.cache_data.clear()
+    st.rerun()  # Quick refresh without full reload
+
+if retrain:
+    with st.spinner("Retraining model..."):
+        from models.train import train_model
+        train_model(selected_asset)
+    st.success("Model retrained!")
+
+# Enhanced Caching: Shorter TTL for data, but persistent models
+@st.cache_data(ttl=1800)  # 30min for fresh data
 def get_data(asset: str):
+    from storage.db_manager import load_ohlc
     return load_ohlc(asset, '2023-01-01')
 
-@st.cache_resource(ttl=7200)  # 2hr for model
+@st.cache_resource(ttl=7200)  # 2hr models
 def get_model(asset: str):
     from models.train import train_model
-    train_model(asset)  # Ensure trained
+    train_model(asset)  # Train if missing
     return joblib.load(f'models/rf_{asset}.joblib')
 
-# Main dashboard: Multi-column
+# Main Dashboard
 col1, col2, col3 = st.columns(3)
 
 with col1:
     st.subheader("Price Chart")
-    df = get_data(selected_asset)
-    fig = px.line(df, x='timestamp', y='close', title=f"{selected_asset} Price")
-    st.plotly_chart(fig, use_container_width=True)
+    with st.spinner("Loading chart..."):
+        df = get_data(selected_asset)
+        px = lazy_import_plotly()
+        fig = px.line(df, x='timestamp', y='close', title=f"{selected_asset} Price")
+        st.plotly_chart(fig, use_container_width=True)
 
 with col2:
     st.subheader("Correlation Matrix")
-    corrs = pd.DataFrame({a: engineer_features(a)['returns'].tail(252) for a in ASSETS}).corr()
-    fig_corr = px.imshow(corrs, title="Asset Correlations", color_continuous_scale='RdBu')
-    st.plotly_chart(fig_corr, use_container_width=True)
+    with st.spinner("Computing correlations..."):
+        from features.engineer import engineer_features
+        corrs = pd.DataFrame({a: engineer_features(a, window=252)['returns'] for a in ASSETS}).corr()
+        px = lazy_import_plotly()
+        fig_corr = px.imshow(corrs, title="Asset Correlations", color_continuous_scale='RdBu')
+        st.plotly_chart(fig_corr, use_container_width=True)
 
 with col3:
     st.subheader("Fundamental Snapshot")
-    st.metric("FEDFUNDS Rate", 5.33, delta=0.25)  # Mock from FRED
-    st.metric("CPI YoY", 3.2, delta=-0.1)
+    # Mock/static for speed; replace with FRED cache later
+    st.metric("FEDFUNDS Rate", "5.33%", delta="0.25%")
+    st.metric("CPI YoY", "3.2%", delta="-0.1%")
 
-# ML Signal Panel
+# ML Signal (Lazy SHAP)
 st.subheader("ML Signal")
-signal, expl = infer_signal(selected_asset)
-st.metric("Signal Score", f"{signal:.2f}", delta=signal > 0)
-st.bar_chart(pd.Series(expl).sort_values(ascending=False).head(5))  # Top features
+with st.spinner("Generating signal..."):
+    from models.infer import infer_signal
+    signal, expl = infer_signal(selected_asset)
 
-# Narrative Summary
+st.metric("Signal Score", f"{signal:.2f}", delta="+" if signal > 0 else "-")
+# Fallback viz without SHAP
+expl_df = pd.Series(expl).sort_values(ascending=False).head(5)
+st.bar_chart(expl_df)
+
+# Narrative
 st.subheader("Market Narrative")
-if signal > 0.2:
-    summary = f"{selected_asset} shows bullish momentum (score: {signal:.2f}), driven by {max(expl, key=expl.get)}."
-else:
-    summary = f"{selected_asset} neutral/bearish (score: {signal:.2f}); watch {max(expl, key=expl.get)}."
-st.write(summary)
+summary = f"{selected_asset} signals {signal:.2f}: {'Bullish' if signal > 0.2 else 'Bearish' if signal < -0.2 else 'Neutral'}, key driver: {expl_df.index[0]}."
+st.info(summary)
 
-# Backtest Hook
+# Backtest Button
 if st.button("Run Quick Backtest"):
-    feats = engineer_features(selected_asset)
-    pnl = simple_backtest(selected_asset, feats)
-    st.success(f"Simulated P&L: {pnl:.2%}")
+    with st.spinner("Simulating P&L..."):
+        from ops.backtest import simple_backtest
+        from features.engineer import engineer_features
+        feats = engineer_features(selected_asset)
+        pnl = simple_backtest(selected_asset, feats)
+        st.success(f"Simulated P&L: {pnl:.2%}")
