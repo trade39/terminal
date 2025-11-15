@@ -1,4 +1,4 @@
-# src/models/infer.py (UPDATED - No changes needed, but full for completeness)
+# src/models/infer.py (FULL FINAL)
 import pandas as pd
 import joblib
 import numpy as np
@@ -6,7 +6,6 @@ from typing import Dict, Tuple
 from features.engineer import engineer_features
 
 def infer_signal(symbol: str) -> Tuple[float, Dict]:
-    """Infer score (-1 to 1); explain via importance."""
     feats = engineer_features(symbol).iloc[-1:].drop(['returns'], axis=1)
     model = joblib.load(f'models/rf_{symbol}.joblib')
     scaler = joblib.load(f'models/scaler_{symbol}.joblib')
