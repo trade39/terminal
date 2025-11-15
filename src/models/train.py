@@ -1,5 +1,6 @@
-# src/models/train.py (UPDATED - Uses utils.config for ASSETS)
+# src/models/train.py (FULL FINAL)
 import pandas as pd
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import accuracy_score
@@ -7,10 +8,10 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 from typing import Dict
 from features.engineer import engineer_features
-from utils.config import ASSETS  # Now safe
+from sqlalchemy import text
+from storage.db_manager import engine
 
 def train_model(symbol: str, target_col: str = 'target') -> Dict:
-    """Train RF; target = future return sign."""
     feats = engineer_features(symbol)
     feats['target'] = (feats['returns'].shift(-1) > 0).astype(int)
     feats = feats.dropna()
@@ -37,12 +38,13 @@ def train_model(symbol: str, target_col: str = 'target') -> Dict:
     
     metrics = {'cv_accuracy': np.mean(scores), 'n_features': X.shape[1]}
     
-    # Log to DB (optional)
-    from storage.db_manager import engine
-    with engine.connect() as conn:
-        conn.execute(text("INSERT INTO model_metadata (model_name, version, metrics) VALUES (:name, :ver, :metrics)"),
-                     {'name': f'RF_{symbol}', 'ver': '1.0', 'metrics': str(metrics)})
-        conn.commit()
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("INSERT INTO model_metadata (model_name, version, metrics) VALUES (:name, :ver, :metrics)"),
+                         {'name': f'RF_{symbol}', 'ver': '1.0', 'metrics': str(metrics)})
+            conn.commit()
+    except:
+        pass  # Ignore DB log error
     
     print(f"Trained RF for {symbol}: CV Acc {metrics['cv_accuracy']:.2f}")
     return metrics
