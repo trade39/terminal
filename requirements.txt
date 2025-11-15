@@ -1,11 +1,11 @@
-# requirements.txt (FULL FIXED - Correct Polygon package + all deps)
+# requirements.txt (FULL FINAL - Works on Streamlit Cloud)
 streamlit
 plotly
 pandas
 numpy
 yfinance
 alpha-vantage
-polygon-api-client  # ← FIXED: Official Polygon.io client
+polygon-api-client
 scikit-learn
 joblib
 sqlalchemy
