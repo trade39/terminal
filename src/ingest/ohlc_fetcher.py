@@ -1,4 +1,5 @@
-# src/ingest/ohlc_fetcher.py (FULL FINAL - Added multi_level_index=False)
+# src/ingest/ohlc_fetcher.py (FULL FINAL - Added import os + MultiIndex flatten)
+import os
 import pandas as pd
 import yfinance as yf
 from alpha_vantage.foreignexchange import ForeignExchange
@@ -78,13 +79,20 @@ def fetch_yahoo(symbol: str) -> pd.DataFrame:
     """Primary source — always works, no key."""
     try:
         ticker = SYMBOL_MAP.get(symbol, symbol)
-        # FIXED: Add multi_level_index=False to avoid MultiIndex columns
-        df = yf.download(ticker, start='2020-01-01', end='2025-11-15', progress=False, multi_level_index=False)
+        df = yf.download(ticker, start='2020-01-01', end='2025-11-15', progress=False)
         if df.empty:
             raise ValueError("Yahoo no data")
+        # FIXED: Flatten MultiIndex columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
         df['symbol'] = symbol
         df['source'] = 'Yahoo'
         df.reset_index(inplace=True)
+        # Ensure standard columns
+        expected = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+        for col in expected:
+            if col not in df.columns:
+                raise ValueError(f"Missing column {col} in yfinance data")
         df.rename(columns={'Date': 'timestamp', 'Open': 'open', 'High': 'high', 'Low': 'low',
                            'Close': 'close', 'Volume': 'volume'}, inplace=True)
         return df[['symbol', 'timestamp', 'open', 'high', 'low', 'close', 'volume']]
