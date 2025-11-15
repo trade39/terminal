@@ -1,4 +1,4 @@
-# app/app.py (FULL FINAL - Added dir creation)
+# app/app.py (FULL FINAL - Removed to_numeric in get_data)
 import streamlit as st
 import yaml
 import joblib
@@ -59,10 +59,8 @@ def get_data(asset: str) -> pd.DataFrame:
             except Exception as e:
                 st.error(f"Fetch failed for {asset}: {e}")
                 return pd.DataFrame()
-    # Ensure types
     if not df.empty:
         df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df['close'] = pd.to_numeric(df['close'], errors='coerce')
         df = df.dropna(subset=['close'])
     return df.sort_values('timestamp').reset_index(drop=True)
 
