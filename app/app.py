@@ -1,4 +1,4 @@
-# app/app.py (FULL FINAL - Removed to_numeric in get_data)
+# app/app.py (FULL FINAL - Added ops path)
 import streamlit as st
 import yaml
 import joblib
@@ -6,8 +6,9 @@ import pandas as pd
 import sys
 import os
 
-# Add src to path
+# Add paths
 sys.path.append('src')
+sys.path.append('ops')  # FIXED: For backtest import
 
 # Create dirs
 os.makedirs('data', exist_ok=True)
@@ -123,7 +124,7 @@ with col3:
     st.metric("FEDFUNDS", "5.33%", "+0.00")
     st.metric("US CPI YoY", "2.7%", "-0.1%")
     st.metric("VIX", "14.20", "-0.80")
-    st.caption("November 15, 2025")
+    st.caption("November 16, 2025")
 
 # ML Signal
 st.subheader(f"ML Signal — {selected_asset}")
@@ -154,7 +155,7 @@ except Exception as e:
 if st.button("Run Quick 2-Year Backtest"):
     with st.spinner("Backtesting..."):
         try:
-            from ops.backtest import simple_backtest
+            from backtest import simple_backtest  # FIXED: Direct import from ops/backtest.py
             from features.engineer import engineer_features
             feats = engineer_features(selected_asset)
             pnl = simple_backtest(selected_asset, feats)
@@ -162,4 +163,4 @@ if st.button("Run Quick 2-Year Backtest"):
         except Exception as e:
             st.error(f"Backtest failed: {e}")
 
-st.caption("Quant Terminal v1.0 — Free-tier Bloomberg Killer | Nov 15, 2025")
+st.caption("Quant Terminal v1.0 — Free-tier Bloomberg Killer | Nov 16, 2025")
