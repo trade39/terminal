@@ -1,4 +1,4 @@
-# app/app.py (FINAL - Config Path Fixed + Graceful Fallback if Missing)
+# app/app.py (FULL FINAL - No errors, auto-fetch/train)
 import streamlit as st
 import yaml
 import joblib
@@ -6,19 +6,17 @@ import pandas as pd
 import sys
 import os
 
-# === Add src to Python path ===
+# Add src to path
 sys.path.append('src')
 
-# === SIMPLE & BULLETPROOF config loading (works 100% on Streamlit Cloud) ===
-config_path = 'config/config.yaml'  # This is correct on Streamlit Cloud (cwd = repo root)
-
+# Simple config load
+config_path = 'config/config.yaml'
 if os.path.exists(config_path):
     with open(config_path, 'r') as f:
         cfg = yaml.safe_load(f)
     ASSETS = cfg.get('assets', ['DXY', 'XAUUSD', 'ES', 'NQ', 'EURUSD', 'GBPUSD'])
 else:
-    # Graceful fallback if file missing (will still run perfectly)
-    st.warning("config/config.yaml not found → using default assets")
+    st.warning("config.yaml missing → default assets")
     ASSETS = ['DXY', 'XAUUSD', 'ES', 'NQ', 'EURUSD', 'GBPUSD']
 
 st.set_page_config(page_title="Quant Terminal", layout="wide")
@@ -39,7 +37,7 @@ if st.sidebar.button(f"Retrain Model - {selected_asset}"):
         train_model(selected_asset)
     st.success("Model retrained!")
 
-# === Data with auto-fetch fallback ===
+# Data with auto-fetch
 @st.cache_data(ttl=1800)
 def get_data(asset: str) -> pd.DataFrame:
     from storage.db_manager import load_ohlc
@@ -55,7 +53,7 @@ def get_data(asset: str) -> pd.DataFrame:
             df = fresh
     return df.sort_values('timestamp')
 
-# === Model with auto-train ===
+# Model with auto-train
 @st.cache_resource(ttl=86400)
 def get_model(asset: str):
     model_path = f'models/rf_{asset}.joblib'
@@ -65,7 +63,7 @@ def get_model(asset: str):
             train_model(asset)
     return joblib.load(model_path)
 
-# === Plotly ===
+# Plotly
 @st.cache_resource(ttl=86400)
 def get_plotly():
     import plotly.express as px
@@ -73,7 +71,7 @@ def get_plotly():
 
 px = get_plotly()
 
-# === Dashboard ===
+# Dashboard
 col1, col2, col3 = st.columns([2, 2, 1])
 
 with col1:
@@ -92,7 +90,8 @@ with col2:
         returns_dict = {}
         for a in ASSETS:
             data = get_data(a)
-            returns_dict[a] = data.set_index('timestamp')['close'].pct_change().tail(252)
+            if not data.empty:
+                returns_dict[a] = data.set_index('timestamp')['close'].pct_change().tail(252)
         corr_df = pd.DataFrame(returns_dict).corr()
         fig = px.imshow(
             corr_df.round(2),
@@ -111,7 +110,7 @@ with col3:
     st.metric("VIX", "14.20", "-0.80")
     st.caption("November 15, 2025")
 
-# === ML Signal ===
+# ML Signal
 st.subheader(f"ML Signal — {selected_asset}")
 with st.spinner("Inferring..."):
     from models.infer import infer_signal
