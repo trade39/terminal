@@ -1,4 +1,4 @@
-# src/ingest/ohlc_fetcher.py (FULL FINAL - Hard-coded to avoid import error)
+# src/ingest/ohlc_fetcher.py (FULL FINAL - Added multi_level_index=False)
 import pandas as pd
 import yfinance as yf
 from alpha_vantage.foreignexchange import ForeignExchange
@@ -15,10 +15,10 @@ import logging
 from dotenv import load_dotenv
 
 load_dotenv()
-API_KEY_AV = ''  # Hard-coded empty (Yahoo fallback)
-API_KEY_POLYGON = ''  # Hard-coded empty
+API_KEY_AV = os.getenv('ALPHA_VANTAGE_KEY', '')
+API_KEY_POLYGON = os.getenv('POLYGON_KEY', '')
 
-# Hard-coded SYMBOL_MAP (no import needed)
+# Hard-coded SYMBOL_MAP
 SYMBOL_MAP = {
     'DXY': 'DX-Y.NYB',
     'XAUUSD': 'GC=F',
@@ -78,7 +78,8 @@ def fetch_yahoo(symbol: str) -> pd.DataFrame:
     """Primary source — always works, no key."""
     try:
         ticker = SYMBOL_MAP.get(symbol, symbol)
-        df = yf.download(ticker, start='2020-01-01', end='2025-11-15', progress=False)
+        # FIXED: Add multi_level_index=False to avoid MultiIndex columns
+        df = yf.download(ticker, start='2020-01-01', end='2025-11-15', progress=False, multi_level_index=False)
         if df.empty:
             raise ValueError("Yahoo no data")
         df['symbol'] = symbol
@@ -101,5 +102,5 @@ def fetch_ohlc(symbol: str, days: int = 1000) -> pd.DataFrame:
     if df.empty:
         raise ValueError(f"No data for {symbol}")
     df = df.tail(days).sort_values('timestamp').reset_index(drop=True)
-    logger.info(f"Fetched {len(df)} bars for {symbol} from {df['source'].iloc[0] if 'source' in df else 'unknown'}")
+    logger.info(f"Fetched {len(df)} bars for {symbol}")
     return df
