@@ -38,6 +38,4 @@ def engineer_features(symbol: str, window: int = 20) -> pd.DataFrame:
     
     feats = df[['symbol', 'timestamp', 'returns', 'volatility', 'momentum_5d', 'corr_dxy', 'macro_rate']]
     feats = feats.fillna(0)  # FIXED: Fill NaNs instead of dropna to avoid empty
-    feats.to_sql('features', engine, if_exists='append', index=False)
-    print(f"Engineered {len(feats)} features for {symbol}")
-    return feats.set_index('timestamp').tail(1000)  # Limit for training speed
+
