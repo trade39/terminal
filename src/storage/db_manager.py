@@ -67,27 +67,29 @@ except Exception as e:
 def store_ohlc(df: pd.DataFrame) -> None:
     if df.empty:
         return
-    
     df = df.copy()
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    # Ensure volume is numeric (some sources return float)
-    df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0).astype(int)
-    if 'source' not in df.columns:
-        df['source'] = 'Unknown'
-    
-    records = df[['symbol', 'timestamp', 'open', 'high', 'low', 'close', 'volume', 'source']].to_dict(orient='records')
-    
-    upsert_sql = text("""
-        INSERT OR REPLACE INTO raw_ohlc 
-        (symbol, timestamp, open, high, low, close, volume, source)
-        VALUES (:symbol, :timestamp, :open, :high, :low, :close, :volume, :source)
-    """)
-    
     try:
         with engine.connect() as conn:
-            conn.execute(upsert_sql, records)  # ← executemany, single transaction
+            upsert_sql = text("""
+                INSERT OR REPLACE INTO raw_ohlc (symbol, timestamp, open, high, low, close, volume, source)
+                VALUES (:symbol, :timestamp, :open, :high, :low, :close, :volume, :source)
+            """)
+            for _, row in df.iterrows():
+                conn.execute(upsert_sql, row.to_dict())
             conn.commit()
-        print(f"Bulk stored/updated {len(df)} rows for {df['symbol'].iloc[0]}")
+        print(f"Stored {len(df)} rows.")
     except Exception as e:
-        print(f"Bulk store error: {e}")
-        raise
+        print(f"Store error: {e}")
+
+def load_ohlc(symbol: str, start_date: str) -> pd.DataFrame:
+    try:
+        query = text("SELECT * FROM raw_ohlc WHERE symbol = :symbol AND timestamp >= :start_date ORDER BY timestamp")
+        with engine.connect() as conn:
+            df = pd.read_sql(query, conn, params={'symbol': symbol, 'start_date': start_date})
+        if not df.empty:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+        return df
+    except Exception as e:
+        print(f"Load error: {e}")
+        return pd.DataFrame()
