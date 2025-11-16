@@ -1,4 +1,4 @@
-# src/ingest/ohlc_fetcher.py (FULL FINAL - No to_numeric here)
+# src/ingest/ohlc_fetcher.py (FULL FINAL - Added retry to fetch_yahoo for rate limits)
 import os
 import pandas as pd
 import yfinance as yf
@@ -14,6 +14,7 @@ from typing import Dict, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 import logging
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 API_KEY_AV = os.getenv('ALPHA_VANTAGE_KEY', '')
@@ -74,6 +75,7 @@ def fetch_polygon(symbol: str, api_key: str) -> Optional[pd.DataFrame]:
         logger.warning(f"Polygon failed for {symbol}: {e}")
         return None
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=5, max=30))  # Longer waits for rate limits
 def fetch_yahoo(symbol: str) -> pd.DataFrame:
     try:
         ticker = SYMBOL_MAP.get(symbol, symbol)
