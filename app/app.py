@@ -1,5 +1,4 @@
-# app/app.py (FULL PRODUCTION-FIXED VERSION - Retrain button now guarantees fresh data + model metrics + auto-rerun)
-
+# app/app.py (FULL FINAL - Added data fetch before retrain to prevent insufficient data error)
 import streamlit as st
 import yaml
 import joblib
@@ -9,13 +8,13 @@ import os
 
 # Add paths
 sys.path.append('src')
-sys.path.append('ops')  # For backtest import
+sys.path.append('ops')  # FIXED: For backtest import
 
 # Create dirs
 os.makedirs('data', exist_ok=True)
 os.makedirs('models', exist_ok=True)
 
-# Simple config load - unchanged
+# Simple config load
 config_path = 'config/config.yaml'
 if os.path.exists(config_path):
     with open(config_path, 'r') as f:
@@ -26,7 +25,7 @@ else:
     ASSETS = ['DXY', 'XAUUSD', 'ES', 'NQ', 'EURUSD', 'GBPUSD']
 
 st.set_page_config(page_title="Quant Terminal", layout="wide")
-st.title("Quant Terminal - Bloomberg Analogue")
+st.title("🏦 Quant Terminal - Bloomberg Analogue")
 
 # Sidebar
 st.sidebar.header("Controls")
@@ -37,26 +36,30 @@ if st.sidebar.button("Refresh All Data & Clear Cache"):
     st.cache_resource.clear()
     st.rerun()
 
-# FIXED: Retrain button now forces fresh data pull before training (eliminates Insufficient data error forever)
-if st.sidebar.button(f"Refresh Data & Retrain Model - {selected_asset}"):
-    # Step 1: Ensure latest data is in DB
-    with st.spinner(f"Fetching latest data for {selected_asset}..."):
+if st.sidebar.button(f"Retrain Model - {selected_asset}"):
+    with st.spinner(f"Ensuring data & retraining model for {selected_asset}..."):
+        # FIXED: Fetch and store data first to ensure sufficient history for training
+        from storage.db_manager import load_ohlc, store_ohlc
         from ingest.ohlc_fetcher import fetch_ohlc
-        from storage.db_manager import store_ohlc
-        fresh = fetch_ohlc(selected_asset, days=2000)
-        store_ohlc(fresh)
-        st.success(f"Fetched {len(fresh):,} fresh bars for {selected_asset}")
-
-    # Step 2: Retrain on guaranteed fresh data
-    with st.spinner(f"Retraining model for {selected_asset}..."):
+        
+        df = load_ohlc(selected_asset, '2020-01-01')
+        if df.empty or len(df) < 50:
+            try:
+                fresh = fetch_ohlc(selected_asset, days=2000)
+                store_ohlc(fresh)
+                st.info(f"Fetched {len(fresh)} fresh bars for {selected_asset}")
+            except Exception as fetch_e:
+                st.error(f"Data fetch failed for {selected_asset}: {fetch_e}")
+                st.stop()
+        
         from models.train import train_model
-        metrics = train_model(selected_asset)
-        cv_acc = metrics.get('cv_accuracy', 0.0)
-        st.success(f"Model retrained → CV Accuracy {cv_acc:.1%} | Features: {metrics.get('n_features')}")
+        try:
+            metrics = train_model(selected_asset)
+            st.success(f"Model retrained! CV Accuracy: {metrics.get('cv_accuracy', 'N/A'):.2f}")
+        except Exception as train_e:
+            st.error(f"Training failed despite data fetch: {train_e}")
 
-    st.rerun()  # Immediate refresh of chart, signal & correlation matrix
-
-# Data with auto-fetch (unchanged but now even safer)
+# Data with auto-fetch
 @st.cache_data(ttl=1800)
 def get_data(asset: str) -> pd.DataFrame:
     from storage.db_manager import load_ohlc
@@ -79,7 +82,7 @@ def get_data(asset: str) -> pd.DataFrame:
         df = df.dropna(subset=['close'])
     return df.sort_values('timestamp').reset_index(drop=True)
 
-# Model with auto-train (unchanged)
+# Model with auto-train
 @st.cache_resource(ttl=86400)
 def get_model(asset: str):
     model_path = f'models/rf_{asset}.joblib'
@@ -97,7 +100,7 @@ def get_plotly():
 
 px = get_plotly()
 
-# Dashboard layout
+# Dashboard
 col1, col2, col3 = st.columns([2, 2, 1])
 
 with col1:
@@ -166,11 +169,10 @@ except Exception as e:
     st.error(f"ML inference failed: {e}")
     st.metric("Signal (-1 → +1)", "N/A")
 
-# Backtest (now works reliably after data refresh)
 if st.button("Run Quick 2-Year Backtest"):
     with st.spinner("Backtesting..."):
         try:
-            from ops.backtest import simple_backtest
+            from backtest import simple_backtest  # FIXED: Direct import from ops/backtest.py
             from features.engineer import engineer_features
             feats = engineer_features(selected_asset)
             pnl = simple_backtest(selected_asset, feats)
@@ -178,4 +180,4 @@ if st.button("Run Quick 2-Year Backtest"):
         except Exception as e:
             st.error(f"Backtest failed: {e}")
 
-st.caption("Quant Terminal v1.1 — Free-tier Bloomberg Killer | Nov 16, 2025")
+st.caption("Quant Terminal v1.0 — Free-tier Bloomberg Killer | Nov 16, 2025")
