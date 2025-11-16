@@ -1,4 +1,4 @@
-# src/models/train.py (FULL FINAL - Use filled feats, min data check)
+# src/models/train.py (FULL FINAL - Lowered min data to 30, adaptive CV splits)
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -17,19 +17,20 @@ os.makedirs('models', exist_ok=True)
 def train_model(symbol: str, target_col: str = 'target') -> Dict:
     try:
         feats = engineer_features(symbol)
-        if feats.empty or len(feats) < 50:  # FIXED: Relax min data
+        if feats.empty or len(feats) < 30:  # FIXED: Lowered threshold to 30 for more flexibility
             raise ValueError("Insufficient data for training")
         feats['target'] = (feats['returns'].shift(-1) > 0).astype(int)
         feats = feats.dropna(subset=['target'])  # Only drop target NaNs
-        if len(feats) < 50:
+        if len(feats) < 30:  # FIXED: Consistent check
             raise ValueError("Insufficient data after target shift")
         
-        X = feats.drop(['returns', 'target'], axis=1)
+        X = feats.drop(['returns', 'target', 'symbol', 'timestamp'], axis=1, errors='ignore')  # FIXED: Drop non-features too
         y = feats['target']
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         
-        tscv = TimeSeriesSplit(n_splits=min(5, len(X)//10))  # Adaptive splits
+        n_splits = max(2, min(5, len(X)//10))  # FIXED: At least 2 splits, adaptive
+        tscv = TimeSeriesSplit(n_splits=n_splits)
         scores = []
         for train_idx, val_idx in tscv.split(X_scaled):
             X_train, X_val = X_scaled[train_idx], X_scaled[val_idx]
@@ -44,7 +45,7 @@ def train_model(symbol: str, target_col: str = 'target') -> Dict:
         joblib.dump(model, f'models/rf_{symbol}.joblib')
         joblib.dump(scaler, f'models/scaler_{symbol}.joblib')
         
-        metrics = {'cv_accuracy': np.mean(scores), 'n_features': X.shape[1]}
+        metrics = {'cv_accuracy': np.mean(scores) if scores else 0.5, 'n_features': X.shape[1], 'n_samples': len(X)}
         
         try:
             with engine.connect() as conn:
@@ -54,7 +55,7 @@ def train_model(symbol: str, target_col: str = 'target') -> Dict:
         except:
             pass
         
-        print(f"Trained RF for {symbol}: CV Acc {metrics['cv_accuracy']:.2f}")
+        print(f"Trained RF for {symbol}: CV Acc {metrics['cv_accuracy']:.2f} on {metrics['n_samples']} samples")
         return metrics
     except Exception as e:
         print(f"Training failed for {symbol}: {e}")
